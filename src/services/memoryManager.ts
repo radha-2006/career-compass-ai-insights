@@ -1,8 +1,11 @@
+
 import { UserMemory } from '../types/memory';
 import { localMemoryService } from './localMemoryService';
+import { vectorMemoryService } from './vectorMemoryService';
 
 class MemoryManager {
   private static instance: MemoryManager;
+  private memoryService = vectorMemoryService; // Use vector service instead of local
   
   private constructor() {}
 
@@ -15,9 +18,14 @@ class MemoryManager {
 
   async saveUserPreference(key: keyof UserMemory, value: any): Promise<void> {
     try {
-      const memory = await localMemoryService.getMemory();
+      const memory = await this.memoryService.getMemory();
       const updatedMemory = { ...memory, [key]: value };
-      await localMemoryService.saveMemory(updatedMemory);
+      
+      // Store with embedding
+      const textRepresentation = `${key}: ${JSON.stringify(value)}`;
+      await this.memoryService.upsertMemoryWithEmbedding(updatedMemory, textRepresentation);
+      
+      console.log(`Saved user preference: ${key}`);
     } catch (error) {
       console.error('Error saving user preference:', error);
     }
@@ -25,7 +33,7 @@ class MemoryManager {
 
   async getUserMemory(): Promise<UserMemory> {
     try {
-      return await localMemoryService.getMemory();
+      return await this.memoryService.getMemory();
     } catch (error) {
       console.error('Error getting user memory:', error);
       return {};
@@ -34,7 +42,7 @@ class MemoryManager {
 
   async clearMemory(): Promise<void> {
     try {
-      await localMemoryService.clearMemory();
+      await this.memoryService.clearMemory();
     } catch (error) {
       console.error('Error clearing memory:', error);
     }
@@ -42,7 +50,7 @@ class MemoryManager {
 
   async updateQueryHistory(query: string): Promise<void> {
     try {
-      const memory = await localMemoryService.getMemory();
+      const memory = await this.memoryService.getMemory();
       const queries = memory.previousQueries || [];
       
       // Keep only the most recent queries (max 10)

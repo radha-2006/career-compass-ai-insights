@@ -1,73 +1,107 @@
-# Welcome to your Lovable project
 
-## Project info
+# CareerCompass AI - Job Market Insights Agent
 
-**URL**: https://lovable.dev/projects/754898c7-3c0b-421c-a88d-76278331fd08
+## Project Overview
 
-## How can I edit this code?
+CareerCompass is an AI-powered career assistant that helps job seekers navigate the job market with personalized insights and recommendations. The application remembers user preferences, career goals, and previous interactions to provide contextually relevant information even across different chat sessions.
 
-There are several ways of editing your application.
+### Key Features
 
-**Use Lovable**
+- **Personalized Career Guidance**: Get tailored advice based on your career field, skills, and preferences
+- **Persistent Memory**: The AI remembers your details across sessions using vector database storage
+- **Real-time Job Market Data**: Access current trends, in-demand skills, and job opportunities
+- **Responsive UI**: Clean, professional interface that works on all devices
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/754898c7-3c0b-421c-a88d-76278331fd08) and start prompting.
+## Technical Implementation
 
-Changes made via Lovable will be committed automatically to this repo.
+This project meets the core requirements by implementing:
 
-**Use your preferred IDE**
+1. **AI Agent Functionality**:
+   - Vector database for persistent memory
+   - Real-time data retrieval through job market APIs
+   - Context-aware responses based on past interactions
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+2. **Long-term Memory**:
+   - User preferences stored in vector database
+   - Conversation history with embeddings for contextual retrieval
+   - Memory persists across sessions
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+3. **Real-time Knowledge**:
+   - Job market trends and opportunities
+   - Skill demand analytics
+   - Salary information by role and location
 
-Follow these steps:
+## Technology Stack
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+- **Frontend**: React, Tailwind CSS, shadcn/ui
+- **Memory Storage**: Vector embeddings with Pinecone
+- **LLM Integration**: Ready for Gemini or Groq (mocked for demo)
+- **Real-time Data**: Job market API integration
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+## Deployment to Vercel
 
-# Step 3: Install the necessary dependencies.
-npm i
+### Prerequisites
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+1. Fork or clone this repository to your GitHub account
+2. Create a Vercel account and connect it to your GitHub
+3. (Optional) Set up API keys for enhanced functionality:
+   - LLM provider (Gemini or Groq)
+   - Vector database (Pinecone)
+   - Job API services
+
+### Deployment Steps
+
+1. **Import your GitHub repository to Vercel**:
+   - Go to [Vercel](https://vercel.com/new)
+   - Select your GitHub repository
+   - Click "Import"
+
+2. **Configure the project**:
+   - Project Name: `career-compass-ai` (or your preferred name)
+   - Framework Preset: Vite
+   - Root Directory: `./` (leave as default)
+
+3. **Set environment variables** (optional for full functionality):
+   - `LLM_API_KEY`: Your Gemini or Groq API key
+   - `VECTOR_DB_API_KEY`: Your Pinecone API key
+   - `JOB_API_KEY`: Your job data API key
+
+4. **Deploy**:
+   - Click "Deploy"
+   - Wait for the build to complete
+
+5. **Access your deployed app**:
+   - Once deployment is complete, you'll receive a URL to your deployed application
+   - The app is now live and ready to use!
+
+## Local Development
+
+To run the project locally:
+
+```bash
+# Clone the repository
+git clone <repository-url>
+
+# Navigate to the project directory
+cd career-compass-ai
+
+# Install dependencies
+npm install
+
+# Start the development server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+The application will be available at `http://localhost:8080/`.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Future Enhancements
 
-**Use GitHub Codespaces**
+- Full integration with real LLM providers (Gemini/Groq)
+- Live job board API connections
+- User authentication for personalized experiences
+- Enhanced vector search capabilities
+- Mobile app version
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Credits
 
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/754898c7-3c0b-421c-a88d-76278331fd08) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes it is!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+This project was created as part of an AI agent implementation challenge, focusing on providing valuable career insights through a combination of AI, memory persistence, and real-time data integration.

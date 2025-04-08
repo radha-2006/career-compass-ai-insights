@@ -1,6 +1,7 @@
 
 import { memoryManager } from './memoryManager';
-import { jobMarketService } from './jobMarketService';
+import { vectorMemoryService } from './vectorMemoryService';
+import { apiJobService } from './apiJobService';
 import { UserMemory } from '../types/memory';
 
 export interface AssistantResponse {
@@ -10,6 +11,8 @@ export interface AssistantResponse {
 
 class AIAssistantService {
   async processMessage(message: string): Promise<AssistantResponse> {
+    console.log("Processing message:", message);
+    
     // Update memory based on the user's message
     await memoryManager.updateQueryHistory(message);
     await memoryManager.extractAndStoreCareerInfo(message);
@@ -17,30 +20,153 @@ class AIAssistantService {
     // Get the user's memory
     const userMemory = await memoryManager.getUserMemory();
     
-    // In a real implementation, this would send the message to an LLM API
+    // Find relevant memories using vector similarity search
+    const similarMemories = await vectorMemoryService.findSimilarMemories(message, 3);
+    console.log("Found similar memories:", similarMemories.length);
+    
+    // Create a context from similar memories
+    const memoryContext = this.buildMemoryContext(similarMemories);
+    
+    // In a real implementation, this would send the message to an LLM API (Gemini or Groq)
     // along with the memory context and get a response
     // For this demo, we'll simulate responses based on the message content
     
     const lowerMessage = message.toLowerCase();
     
     // Handle different query types
-    if (lowerMessage.includes('skill') || lowerMessage.includes('demand')) {
-      return this.handleSkillsQuery(lowerMessage, userMemory);
-    } else if (lowerMessage.includes('salary') || lowerMessage.includes('pay') || lowerMessage.includes('compensation')) {
-      return this.handleSalaryQuery(lowerMessage, userMemory);
-    } else if (lowerMessage.includes('job') || lowerMessage.includes('opportunit') || lowerMessage.includes('position')) {
-      return this.handleJobOpportunitiesQuery(lowerMessage, userMemory);
-    } else if (lowerMessage.includes('remote') || lowerMessage.includes('work from home')) {
-      return this.handleRemoteWorkQuery(lowerMessage, userMemory);
-    } else if (lowerMessage.includes('trend') || lowerMessage.includes('market')) {
-      return this.handleTrendsQuery(lowerMessage, userMemory);
-    } else {
-      // General response
-      return this.handleGeneralQuery(message, userMemory);
+    try {
+      let response: AssistantResponse;
+      
+      if (lowerMessage.includes('skill') || lowerMessage.includes('demand')) {
+        response = await this.handleSkillsQuery(lowerMessage, userMemory, memoryContext);
+      } else if (lowerMessage.includes('salary') || lowerMessage.includes('pay') || lowerMessage.includes('compensation')) {
+        response = await this.handleSalaryQuery(lowerMessage, userMemory, memoryContext);
+      } else if (lowerMessage.includes('job') || lowerMessage.includes('opportunit') || lowerMessage.includes('position')) {
+        response = await this.handleJobOpportunitiesQuery(lowerMessage, userMemory, memoryContext);
+      } else if (lowerMessage.includes('remote') || lowerMessage.includes('work from home')) {
+        response = await this.handleRemoteWorkQuery(lowerMessage, userMemory, memoryContext);
+      } else if (lowerMessage.includes('trend') || lowerMessage.includes('market')) {
+        response = await this.handleTrendsQuery(lowerMessage, userMemory, memoryContext);
+      } else if (this.isGreeting(lowerMessage)) {
+        response = await this.handleGreeting(message, userMemory, memoryContext);
+      } else {
+        // General response
+        response = await this.handleGeneralQuery(message, userMemory, memoryContext);
+      }
+      
+      // Store this interaction in memory with vector embedding
+      if (response) {
+        const interaction = {
+          timestamp: new Date().toISOString(),
+          message: message,
+          response: response.content
+        };
+        
+        const conversationHistory = userMemory.conversationHistory || [];
+        const updatedHistory = [interaction, ...conversationHistory].slice(0, 20); // Keep last 20 interactions
+        
+        const memoryUpdate = {
+          ...response.memoryUpdates,
+          conversationHistory: updatedHistory,
+          lastInteractionDate: new Date().toISOString()
+        };
+        
+        // Store with embedding
+        await vectorMemoryService.upsertMemoryWithEmbedding(memoryUpdate, 
+          `User: ${message}\nAssistant: ${response.content}`);
+      }
+      
+      return response;
+    } catch (error) {
+      console.error("Error processing message:", error);
+      return {
+        content: "I'm sorry, I encountered an error processing your request. Please try again."
+      };
     }
   }
   
-  private async handleSkillsQuery(message: string, memory: UserMemory): Promise<AssistantResponse> {
+  private buildMemoryContext(memories: UserMemory[]): string {
+    if (!memories || memories.length === 0) return "";
+    
+    let context = "Based on our previous conversations, I remember:\n";
+    
+    const careerFields = new Set<string>();
+    const skills = new Set<string>();
+    const locations = new Set<string>();
+    const jobPreferences: Record<string, boolean> = {};
+    
+    // Collect unique information from memories
+    memories.forEach(memory => {
+      if (memory.careerField) careerFields.add(memory.careerField);
+      if (memory.skills) memory.skills.forEach(skill => skills.add(skill));
+      if (memory.preferredLocations) memory.preferredLocations.forEach(loc => locations.add(loc));
+      if (memory.jobPreferences) {
+        Object.entries(memory.jobPreferences).forEach(([key, value]) => {
+          if (value) jobPreferences[key] = true;
+        });
+      }
+    });
+    
+    // Build context string
+    if (careerFields.size > 0) {
+      context += `- Career field(s): ${Array.from(careerFields).join(', ')}\n`;
+    }
+    
+    if (skills.size > 0) {
+      context += `- Skills: ${Array.from(skills).join(', ')}\n`;
+    }
+    
+    if (locations.size > 0) {
+      context += `- Preferred locations: ${Array.from(locations).join(', ')}\n`;
+    }
+    
+    if (Object.keys(jobPreferences).length > 0) {
+      const prefs = Object.keys(jobPreferences).map(key => key.charAt(0).toUpperCase() + key.slice(1));
+      context += `- Job preferences: ${prefs.join(', ')}\n`;
+    }
+    
+    return context;
+  }
+  
+  private isGreeting(message: string): boolean {
+    const greetings = ['hello', 'hi', 'hey', 'greetings', 'good morning', 'good afternoon', 'good evening'];
+    return greetings.some(greeting => message.toLowerCase().includes(greeting));
+  }
+  
+  private async handleGreeting(message: string, memory: UserMemory, context: string): Promise<AssistantResponse> {
+    let greeting = "Hello! I'm CareerCompass, your AI career assistant. I can help you navigate the job market with personalized insights and real-time data.";
+    
+    if (memory.lastInteractionDate) {
+      const lastDate = new Date(memory.lastInteractionDate);
+      const now = new Date();
+      const hoursSinceLastInteraction = (now.getTime() - lastDate.getTime()) / (1000 * 60 * 60);
+      
+      if (hoursSinceLastInteraction < 24) {
+        greeting = "Welcome back! It's good to see you again.";
+      } else {
+        greeting = "Welcome back! It's been a while since we last chatted.";
+      }
+    }
+    
+    let response = `${greeting}\n\nI can assist with:
+• Current job market trends and opportunities
+• In-demand skills in your field
+• Salary information and comparisons
+• Remote work trends and opportunities
+• Career path recommendations based on your profile\n`;
+
+    if (memory.careerField || memory.skills?.length) {
+      response += `\nBased on our previous conversations, I remember that you're interested in ${memory.careerField || 'the job market'}${
+        memory.skills ? ` and have experience with ${memory.skills.join(', ')}` : ''
+      }. How can I help you today?`;
+    } else {
+      response += "\nTo provide more personalized recommendations, feel free to share details about your career field, skills, or job preferences. I'll remember these details for future conversations.";
+    }
+    
+    return { content: response };
+  }
+  
+  private async handleSkillsQuery(message: string, memory: UserMemory, context: string): Promise<AssistantResponse> {
     let industry = memory.careerField || 'technology';
     
     // Try to identify industry from the message
@@ -52,15 +178,16 @@ class AIAssistantService {
       }
     }
     
-    const topSkills = await jobMarketService.getTopSkills(industry);
+    // Get skill data from API
+    const topSkills = await apiJobService.getSkills(industry);
     
     const response = `Based on the latest market data for the ${industry} industry, these are the most in-demand skills:
 
-${topSkills.map(skill => `• ${skill.skill} - Growing at ${skill.growth}% with a demand score of ${skill.demandScore}/100`).join('\n')}
+${topSkills.map(skill => `• ${skill.name} - Growing at ${skill.growth}% with a demand score of ${skill.demand}/100`).join('\n')}
 
 ${memory.skills && memory.skills.length > 0 
   ? `I notice you've mentioned experience with ${memory.skills.join(', ')}. ${
-      topSkills.some(ts => memory.skills!.some(s => ts.skill.toLowerCase().includes(s.toLowerCase())))
+      topSkills.some(ts => memory.skills!.some(s => ts.name.toLowerCase().includes(s.toLowerCase())))
         ? "That's great! Some of these skills are highly valued in the current market."
         : "Consider adding some of these high-demand skills to your repertoire to enhance your marketability."
     }`
@@ -73,8 +200,9 @@ ${memory.skills && memory.skills.length > 0
     };
   }
   
-  private async handleSalaryQuery(message: string, memory: UserMemory): Promise<AssistantResponse> {
+  private async handleSalaryQuery(message: string, memory: UserMemory, context: string): Promise<AssistantResponse> {
     let role = 'software engineer';
+    let location: string | undefined = undefined;
     
     // Try to identify role from the message or memory
     if (message.includes('data scientist') || message.includes('data science')) {
@@ -85,7 +213,22 @@ ${memory.skills && memory.skills.length > 0
       role = memory.careerField;
     }
     
-    const salaryData = await jobMarketService.getSalaryInfo(role);
+    // Check for location in message
+    const locations = ['san francisco', 'new york', 'seattle', 'austin', 'remote'];
+    for (const loc of locations) {
+      if (message.toLowerCase().includes(loc)) {
+        location = loc;
+        break;
+      }
+    }
+    
+    // If no location in message, use preferred locations from memory
+    if (!location && memory.preferredLocations && memory.preferredLocations.length > 0) {
+      location = memory.preferredLocations[0];
+    }
+    
+    // Get salary data from API
+    const salaryData = await apiJobService.getSalaries(role, location);
     
     const formatter = new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -96,7 +239,7 @@ ${memory.skills && memory.skills.length > 0
     const response = `Here are the current salary trends for roles related to ${role}:
 
 ${salaryData.map(data => 
-  `• ${data.role}: Average ${formatter.format(data.averageSalary)} (Range: ${formatter.format(data.salaryRange.min)} - ${formatter.format(data.salaryRange.max)})`
+  `• ${data.role}: Average ${formatter.format(data.average)} (Range: ${formatter.format(data.range.min)} - ${formatter.format(data.range.max)})`
 ).join('\n')}
 
 ${memory.preferredLocations && memory.preferredLocations.length > 0
@@ -113,42 +256,48 @@ Experience level, company size, and industry specialization also impact compensa
     return { content: response };
   }
   
-  private async handleJobOpportunitiesQuery(message: string, memory: UserMemory): Promise<AssistantResponse> {
+  private async handleJobOpportunitiesQuery(message: string, memory: UserMemory, context: string): Promise<AssistantResponse> {
     // Determine filters based on message and memory
-    const filters: {
-      location?: string,
-      remote?: boolean,
-      skills?: string[]
-    } = {};
+    let query = "";
+    let location: string | undefined = undefined;
+    let remote: boolean | undefined = undefined;
+    
+    // Extract query from message or memory
+    if (memory.careerField) {
+      query = memory.careerField;
+    }
+    
+    if (memory.skills && memory.skills.length > 0) {
+      query = memory.skills[0] + " " + query;
+    }
     
     // Check message for location mentions
     const locations = ['san francisco', 'new york', 'seattle', 'austin', 'remote'];
     for (const loc of locations) {
       if (message.toLowerCase().includes(loc)) {
         if (loc === 'remote') {
-          filters.remote = true;
+          remote = true;
         } else {
-          filters.location = loc;
+          location = loc;
         }
         break;
       }
     }
     
     // Use memory for additional filters
-    if (!filters.location && memory.preferredLocations && memory.preferredLocations.length > 0) {
-      filters.location = memory.preferredLocations[0];
-    }
-    
-    if (memory.skills && memory.skills.length > 0) {
-      filters.skills = memory.skills;
+    if (!location && memory.preferredLocations && memory.preferredLocations.length > 0) {
+      location = memory.preferredLocations[0];
     }
     
     // If message mentions remote work
     if (message.toLowerCase().includes('remote')) {
-      filters.remote = true;
+      remote = true;
+    } else if (memory.jobPreferences?.remote) {
+      remote = true;
     }
     
-    const jobs = await jobMarketService.getJobOpportunities(filters);
+    // Get job data from API
+    const jobs = await apiJobService.getJobs(query, location, remote);
     
     if (jobs.length === 0) {
       return { 
@@ -159,14 +308,14 @@ Experience level, company size, and industry specialization also impact compensa
     // Format response
     const jobList = jobs.slice(0, 3).map(job => {
       return `• ${job.title} at ${job.company} (${job.location})
-  ${job.remote ? "Remote eligible" : "On-site"}
+  ${job.url ? `[Job Link](${job.url})` : ""}
   ${job.salary ? `Salary: ${job.salary}` : ""}
-  Skills: ${job.skills.join(', ')}
-  Posted: ${job.postedDate}`;
+  Skills: ${job.skills ? job.skills.join(', ') : "Various skills"}
+  Posted: ${new Date(job.postedDate).toLocaleDateString()}`;
     }).join('\n\n');
     
     const response = `Here are some relevant job opportunities based on ${
-      Object.keys(filters).length > 0 
+      (location || remote || memory.careerField || memory.skills?.length > 0) 
         ? `your preferences and our conversation`
         : `current market trends`
     }:
@@ -178,7 +327,7 @@ These listings are based on the latest data from my job market database. In a re
     return { content: response };
   }
   
-  private async handleRemoteWorkQuery(message: string, memory: UserMemory): Promise<AssistantResponse> {
+  private async handleRemoteWorkQuery(message: string, memory: UserMemory, context: string): Promise<AssistantResponse> {
     // Set remote preference in memory
     const memoryUpdates: Partial<UserMemory> = {
       jobPreferences: { ...(memory.jobPreferences || {}), remote: true }
@@ -194,6 +343,9 @@ These listings are based on the latest data from my job market database. In a re
       }
     }
     
+    // Get trend data from API
+    const trends = await apiJobService.getTrends('remote work');
+    
     const response = `Remote work continues to be a significant part of the job market in 2025. ${
       industry 
         ? `In the ${industry} field, remote opportunities have ${
@@ -208,6 +360,8 @@ Top industries for remote work:
 • Digital Marketing (65% remote options)
 • Content Creation (70% remote options)
 • Customer Success (55% remote options)
+
+${trends.length > 0 ? `Recent trend: ${trends[0].title} - ${trends[0].description}\n` : ''}
 
 Companies are increasingly adopting hybrid models that combine remote work with occasional in-office collaboration. Some notable trends include:
 
@@ -229,7 +383,7 @@ I've noted your interest in remote work and will prioritize remote opportunities
     };
   }
   
-  private async handleTrendsQuery(message: string, memory: UserMemory): Promise<AssistantResponse> {
+  private async handleTrendsQuery(message: string, memory: UserMemory, context: string): Promise<AssistantResponse> {
     let industry = '';
     const industries = ['software', 'data', 'marketing', 'design', 'finance', 'healthcare'];
     for (const ind of industries) {
@@ -243,9 +397,9 @@ I've noted your interest in remote work and will prioritize remote opportunities
       industry = memory.careerField;
     }
     
-    const topSkills = industry 
-      ? await jobMarketService.getTopSkills(industry)
-      : await jobMarketService.getTopSkills();
+    // Get data from APIs
+    const topSkills = await apiJobService.getSkills(industry);
+    const trends = await apiJobService.getTrends(industry);
     
     const response = `Here are the latest job market trends ${industry ? `in ${industry}` : 'across industries'}:
 
@@ -257,7 +411,9 @@ Growth Areas:
 • Healthcare technology (26% increase)
 
 In-demand Skills:
-${topSkills.map(skill => `• ${skill.skill} (${skill.growth}% growth)`).join('\n')}
+${topSkills.map(skill => `• ${skill.name} (${skill.growth}% growth)`).join('\n')}
+
+${trends.length > 0 ? `Recent Industry Insight:\n${trends[0].title} - ${trends[0].description}\n` : ''}
 
 Industry Shifts:
 • Companies are increasingly prioritizing digital transformation
@@ -281,31 +437,7 @@ ${memory.careerField
     };
   }
   
-  private async handleGeneralQuery(message: string, memory: UserMemory): Promise<AssistantResponse> {
-    // Check if this might be an introduction or first conversation
-    if (message.toLowerCase().includes('hello') || 
-        message.toLowerCase().includes('hi') || 
-        message.toLowerCase().includes('hey') ||
-        message.toLowerCase().includes('help')) {
-      return {
-        content: `Hello! I'm CareerCompass, your AI career assistant. I can help you navigate the job market with personalized insights and real-time data.
-
-I can assist with:
-• Current job market trends and opportunities
-• In-demand skills in your field
-• Salary information and comparisons
-• Remote work trends and opportunities
-• Career path recommendations based on your profile
-
-${Object.keys(memory).length > 2
-  ? `Based on our previous conversations, I remember that you're interested in ${memory.careerField || 'the job market'}${
-      memory.skills ? ` and have experience with ${memory.skills.join(', ')}` : ''
-    }. How can I help you today?`
-  : "To provide more personalized recommendations, feel free to share details about your career field, skills, or job preferences. I'll remember these details for future conversations."
-}`
-      };
-    }
-    
+  private async handleGeneralQuery(message: string, memory: UserMemory, context: string): Promise<AssistantResponse> {
     // For any other queries, give a general response based on memory
     return {
       content: `Thanks for your message. To help you more effectively, could you be more specific about what job market information you're looking for? 

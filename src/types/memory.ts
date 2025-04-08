@@ -11,6 +11,14 @@ export interface UserMemory {
   };
   previousQueries?: string[];
   interests?: string[];
+  conversationHistory?: {
+    timestamp: string;
+    message: string;
+    response: string;
+  }[];
+  lastInteractionDate?: string;
+  favoriteResources?: string[];
+  jobSearchStatus?: 'active' | 'passive' | 'not_looking';
 }
 
 export interface MemoryStorageService {

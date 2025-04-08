@@ -11,12 +11,17 @@ import { useToast } from "@/components/ui/use-toast";
 import { aiAssistantService } from '@/services/aiAssistantService';
 import { memoryManager } from '@/services/memoryManager';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { UserMemory } from '@/types/memory';
+import { Button } from '@/components/ui/button';
+import { RefreshCcwIcon, BrainIcon } from 'lucide-react';
 
 const Index = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [userMemory, setUserMemory] = useState<UserMemory>({});
+  const [showMemoryIndicator, setShowMemoryIndicator] = useState(true);
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const chatInputRef = useRef<HTMLDivElement>(null);
@@ -26,7 +31,19 @@ const Index = () => {
     if (!isMobile) {
       setIsSidebarOpen(true);
     }
+    
+    // Load user memory on component mount
+    loadUserMemory();
   }, [isMobile]);
+
+  const loadUserMemory = async () => {
+    try {
+      const memory = await memoryManager.getUserMemory();
+      setUserMemory(memory);
+    } catch (error) {
+      console.error('Error loading user memory:', error);
+    }
+  };
 
   const handleSendMessage = async (content: string) => {
     // Add user message
@@ -50,6 +67,9 @@ const Index = () => {
           Object.keys(response.memoryUpdates)[0] as any,
           Object.values(response.memoryUpdates)[0]
         );
+        
+        // Refresh memory display
+        loadUserMemory();
       }
       
       // Add assistant response
@@ -84,6 +104,28 @@ const Index = () => {
     }, 500);
   };
 
+  const handleClearMemory = async () => {
+    try {
+      await memoryManager.clearMemory();
+      setUserMemory({});
+      toast({
+        title: "Memory Cleared",
+        description: "Your conversation history and preferences have been reset.",
+      });
+    } catch (error) {
+      console.error('Error clearing memory:', error);
+      toast({
+        title: "Error",
+        description: "Failed to clear memory. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const toggleMemoryIndicator = () => {
+    setShowMemoryIndicator(prev => !prev);
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <Header toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
@@ -98,7 +140,34 @@ const Index = () => {
         }`}>
           {showChat ? (
             <div className="flex flex-col h-full bg-white border rounded-lg shadow-sm overflow-hidden">
-              <ChatWindow messages={messages} isLoading={isLoading} />
+              <div className="flex justify-between items-center p-2 bg-gray-50 border-b">
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-8 px-2" 
+                    onClick={toggleMemoryIndicator}
+                    title={showMemoryIndicator ? "Hide memory status" : "Show memory status"}
+                  >
+                    <BrainIcon className={`h-4 w-4 ${showMemoryIndicator ? 'text-brand-purple' : 'text-gray-400'}`} />
+                  </Button>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="h-8" 
+                  onClick={handleClearMemory}
+                >
+                  <RefreshCcwIcon className="h-4 w-4 mr-2" />
+                  Reset Memory
+                </Button>
+              </div>
+              <ChatWindow 
+                messages={messages} 
+                isLoading={isLoading} 
+                userMemory={userMemory}
+                showMemoryIndicator={showMemoryIndicator}
+              />
               <div ref={chatInputRef}>
                 <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
               </div>

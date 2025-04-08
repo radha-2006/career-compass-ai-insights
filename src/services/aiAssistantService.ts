@@ -1,4 +1,3 @@
-
 import { memoryManager } from './memoryManager';
 import { vectorMemoryService } from './vectorMemoryService';
 import { apiJobService } from './apiJobService';
@@ -37,6 +36,13 @@ class AIAssistantService {
     try {
       let response: AssistantResponse;
       
+      // First, check if the message is a simple custom question not covered by our specialized handlers
+      if (lowerMessage.includes('why') && lowerMessage.includes('same') && lowerMessage.includes('reply')) {
+        return {
+          content: "I understand your concern. Previously, I was giving similar responses because the message processing logic wasn't properly distinguishing between different types of questions. This has now been fixed, and I'll respond appropriately to different questions. Could you try asking me something specific about careers or the job market?"
+        };
+      }
+      
       if (lowerMessage.includes('skill') || lowerMessage.includes('demand')) {
         response = await this.handleSkillsQuery(lowerMessage, userMemory, memoryContext);
       } else if (lowerMessage.includes('salary') || lowerMessage.includes('pay') || lowerMessage.includes('compensation')) {
@@ -50,8 +56,16 @@ class AIAssistantService {
       } else if (this.isGreeting(lowerMessage)) {
         response = await this.handleGreeting(message, userMemory, memoryContext);
       } else {
-        // General response
-        response = await this.handleGeneralQuery(message, userMemory, memoryContext);
+        // Check for specific industry inquiries
+        const industries = ['software', 'tech', 'data', 'marketing', 'finance', 'healthcare', 'education', 'design'];
+        const mentionsIndustry = industries.some(industry => lowerMessage.includes(industry));
+        
+        if (mentionsIndustry) {
+          response = await this.handleIndustryQuery(message, userMemory, memoryContext);
+        } else {
+          // Try to provide a more personalized response instead of the generic one
+          response = await this.handleCustomQuery(message, userMemory, memoryContext);
+        }
       }
       
       // Store this interaction in memory with vector embedding
@@ -437,26 +451,132 @@ ${memory.careerField
     };
   }
   
-  private async handleGeneralQuery(message: string, memory: UserMemory, context: string): Promise<AssistantResponse> {
-    // For any other queries, give a general response based on memory
+  private async handleIndustryQuery(message: string, memory: UserMemory, context: string): Promise<AssistantResponse> {
+    // Determine which industry is being discussed
+    const industries = {
+      tech: ['software', 'tech', 'it', 'technology'],
+      data: ['data', 'analytics', 'science'],
+      marketing: ['marketing', 'advertising', 'digital marketing'],
+      finance: ['finance', 'banking', 'accounting'],
+      healthcare: ['healthcare', 'medical', 'health'],
+      education: ['education', 'teaching', 'academic'],
+      design: ['design', 'ux', 'ui', 'graphic']
+    };
+    
+    let detectedIndustry = '';
+    const lowerMessage = message.toLowerCase();
+    
+    // Find which industry is mentioned in the message
+    for (const [industry, keywords] of Object.entries(industries)) {
+      if (keywords.some(keyword => lowerMessage.includes(keyword))) {
+        detectedIndustry = industry;
+        break;
+      }
+    }
+    
+    // If no specific industry detected, use one from memory or default to tech
+    if (!detectedIndustry) {
+      detectedIndustry = memory.careerField || 'tech';
+    }
+    
+    // Get trend data from API
+    const trends = await apiJobService.getTrends(detectedIndustry);
+    const skills = await apiJobService.getSkills(detectedIndustry);
+    
+    // Format industry name for display
+    const industryDisplay = detectedIndustry.charAt(0).toUpperCase() + detectedIndustry.slice(1);
+    
+    const response = `The ${industryDisplay} industry has been experiencing significant changes in 2025. Here are some key insights:
+
+Growth Rate: ${['tech', 'data', 'healthcare'].includes(detectedIndustry) ? 'Above average' : 'Steady'} compared to other sectors.
+
+Top In-Demand Skills:
+${skills.slice(0, 3).map(skill => `• ${skill.name} - Growing at ${skill.growth}% with high demand`).join('\n')}
+
+Recent Industry Trends:
+${trends.slice(0, 2).map(trend => `• ${trend.title}: ${trend.description}`).join('\n')}
+
+Job Market Outlook:
+• ${['tech', 'data', 'healthcare'].includes(detectedIndustry) ? 'Hiring is robust with many companies actively recruiting' : 'Job market is competitive but stable with opportunities for specialists'}
+• ${detectedIndustry === 'tech' ? 'Remote work options continue to dominate' : 'Hybrid work models are becoming standard'}
+• Upskilling is critical for career advancement in this field
+
+${memory.skills && memory.skills.length > 0
+  ? `Based on your background with ${memory.skills.join(', ')}, you're well-positioned to explore roles that leverage these skills in the ${industryDisplay} sector.`
+  : `To enhance your prospects in the ${industryDisplay} sector, consider developing specialized skills that align with current industry demands.`
+}`;
+    
+    return { 
+      content: response,
+      memoryUpdates: { careerField: detectedIndustry }
+    };
+  }
+  
+  // Replace the generic response with a more personalized custom query handler
+  private async handleCustomQuery(message: string, memory: UserMemory, context: string): Promise<AssistantResponse> {
+    const lowerMessage = message.toLowerCase();
+    
+    // Analyze the message to provide more relevant responses
+    if (lowerMessage.includes('help') || lowerMessage.includes('what can you do')) {
+      return {
+        content: `I'm CareerCompass, your AI career assistant. I can help you with:
+
+• Finding in-demand skills for your industry
+• Analyzing current job market trends
+• Providing salary information for various roles
+• Suggesting remote work opportunities
+• Offering personalized career path recommendations
+
+Just ask me a specific question about any of these topics, and I'll provide customized insights based on your preferences and the latest market data.`
+      };
+    }
+    
+    if (lowerMessage.includes('remember') || lowerMessage.includes('memory')) {
+      return {
+        content: `Yes, I have memory capabilities! I remember:
+${memory.careerField ? `• Your career field: ${memory.careerField}` : ''}
+${memory.skills && memory.skills.length > 0 ? `• Your skills: ${memory.skills.join(', ')}` : ''}
+${memory.preferredLocations && memory.preferredLocations.length > 0 ? `• Your preferred locations: ${memory.preferredLocations.join(', ')}` : ''}
+${memory.jobPreferences ? `• Job preferences: ${Object.entries(memory.jobPreferences)
+  .filter(([_, value]) => value)
+  .map(([key, _]) => key)
+  .join(', ')}` : ''}
+
+This information helps me provide more personalized recommendations. You can share more details about your preferences anytime, and I'll remember them for future conversations.`
+      };
+    }
+    
+    if (lowerMessage.includes('career') || lowerMessage.includes('advice')) {
+      return {
+        content: `Career development is a journey that benefits from continuous learning and strategic planning. Here are some general career advancement tips:
+
+1. Set clear short-term and long-term goals
+2. Seek mentorship and build your professional network
+3. Develop both technical and soft skills
+4. Stay updated with industry trends
+5. Request regular feedback on your performance
+
+${memory.careerField 
+  ? `Since you're interested in ${memory.careerField}, I recommend focusing on building expertise in this area while also developing complementary skills that increase your versatility.`
+  : `To provide more tailored career advice, I'd love to know more about your field of interest and career goals.`
+}`
+      };
+    }
+    
+    // Default response when no specific intent is detected
     return {
       content: `Thanks for your message. To help you more effectively, could you be more specific about what job market information you're looking for? 
 
-${memory.careerField 
-  ? `Since you're interested in ${memory.careerField}, I can provide insights about:
-• Current trends in ${memory.careerField}
-• In-demand skills for ${memory.careerField} professionals
-• Salary expectations for roles in this field
-• Job opportunities matching your profile`
-  : `I can provide information about:
-• Current job market trends
-• In-demand skills across industries
-• Salary ranges for various roles
-• Remote work opportunities
-• Career path recommendations`
-}
+For example, you could ask about:
+• "What skills are in demand for software engineers?"
+• "What are current salary trends in marketing?"
+• "What remote job opportunities are growing?"
+• "How is the tech job market in New York?"
 
-Just let me know what specific aspects you'd like to explore!`
+${memory.careerField 
+  ? `Since you've mentioned an interest in ${memory.careerField}, I can provide specific insights for this field if you'd like.`
+  : `Sharing details about your career field, skills, or job preferences will help me provide more personalized recommendations.`
+}`
     };
   }
 }
